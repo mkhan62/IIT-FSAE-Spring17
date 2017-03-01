@@ -24,11 +24,20 @@ int sum = 0;
 
 
 //Can cmd
-unsigned char ini[2] = {01, 01};
-unsigned char wCom2[8] = {47, 01, 24, 02, 255, 00, 00, 00};
-unsigned char wCom3[8] = {47, 02, 24, 02, 01, 00, 00, 00};
-unsigned char wHBeat[8] = {43, 23, 16, 00, 00, 00, 00, 00};
-unsigned char wGItru[8] = {47, 35, 100, 00, 01, 00, 00, 00};
+  unsigned char ini[2] = {01, 01};
+  unsigned char wCom2[8] = {47, 01, 24, 02, 255, 00, 00, 00};
+  unsigned char wCom3[8] = {47, 02, 24, 02, 01, 00, 00, 00};
+  unsigned char wHBeat[8] = {43, 23, 16, 00, 00, 00, 00, 00};
+  unsigned char wGItru[8] = {47, 35, 100, 00, 01, 00, 00, 00};
+
+//startup can cmd and componenets
+int startLight = 34;
+int beeper = 32;
+int plug = 30;
+unsigned char stoP[2] = {02,01};
+unsigned char reset[2] = {81,01};
+unsigned char  preOp[2] = {80,01};
+
 
 //Parameter of Seneor
 //Data collected by testing sensors
@@ -44,8 +53,81 @@ MCP_CAN CAN(SPI_CS_PIN);
 
 void setup() {
   Serial.begin(115200);
+  pinMode(startLight,OUTPUT);
+  pinMode(beeper,OUTPUT);
+  pinMode(plug,INPUT);
   check();
   configure();
+  startUp();
+  
+}
+
+void startUp() {
+  BEGIN:
+  unsigned char len = 0;
+  unsigned char buf[8];
+  
+  CAN.sendMsgBuf(0x00,0,2,reset);
+  if(CAN_MSGAVAIL == CAN.checkReceive())            // check if data coming
+    {
+        CAN.readMsgBuf(&len, buf);    // read data,  len: data length, buf: data buf
+        unsigned int canId = CAN.getCanId();
+        Serial.println(buf[8]);  
+    }
+  else
+    {
+       Serial.println("Boot Up Error...");
+        goto BEGIN;
+    }
+  CAN.sendMsgBuf(0x00,0,2,stoP);
+  if(CAN_MSGAVAIL == CAN.checkReceive())            // check if data coming
+    {
+        CAN.readMsgBuf(&len, buf);    // read data,  len: data length, buf: data buf
+        unsigned int canId = CAN.getCanId();
+        Serial.println(canId);  
+    }
+  else
+    {
+       Serial.println("Pre Op Error...");
+        goto BEGIN;
+    }
+
+  WaitForPedal:
+  if(CAN_MSGAVAIL == CAN.checkReceive())            // check if data coming
+    {
+        CAN.readMsgBuf(&len, buf);    // read data,  len: data length, buf: data buf
+        unsigned int canId = CAN.getCanId();
+        Serial.println(canId);
+        if(canId == 641){
+          Serial.println("ADC... Ready!");  
+        }
+        else{
+          Serial.println("ADC test failure..");
+        }
+    }
+  
+  // brake pedal test
+  digitalWrite(startLight, HIGH);
+  delay(500);
+  Serial.println("Press the Start button!");
+  int plugCheck=digitalRead(plug);
+  //if(plugCheck==HIGH)
+  //{
+  digitalWrite(startLight,LOW);
+  CAN.sendMsgBuf(0x00,0,2,ini);
+  if(CAN_MSGAVAIL == CAN.checkReceive())            // check if data coming
+    {
+        CAN.readMsgBuf(&len, buf);    // read data,  len: data length, buf: data buf
+        unsigned int canId = CAN.getCanId();
+        Serial.println(canId);  
+    }
+  else
+    {
+       Serial.println("op Error...");
+        goto WaitForPedal;
+    }
+  
+  
 }
 
 void check() {
@@ -68,7 +150,7 @@ void configure() {
   CAN.sendMsgBuf(0x00, 0, 2,ini);
   Serial.println("OK");
   delay(test); 
-    
+  
   Serial.print("Config 1801... ");
   CAN.sendMsgBuf(0x601, 0, 8, wCom2);
   Serial.println("OK");
@@ -94,7 +176,6 @@ void configure() {
 void loop() {
     int result[3];
     rec();
-    
     if (canId == 641)
     {
       for(int i=channel[0]; i<channel[1]; i++)
@@ -104,12 +185,13 @@ void loop() {
         //2) convert percentage value to motor controller data.
         //3) output data to motor controller.
         Serial.print(result[i]);
-        Serial.print(" ");
+        Serial.print(" "); 
       }
       int alpha = CalculateOutputSignal(result, 3);
       Serial.print("  ");
       Serial.print(alpha);
     }
+    
     Serial.println();
     delay(dly);
 }
